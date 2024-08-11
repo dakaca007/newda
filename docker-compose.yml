@@ -61,4 +61,3 @@ CMD if [ -n "$PROXY_URL" ]; then \
         node server.js; \
     fi
 
-上面代码详细讲解
