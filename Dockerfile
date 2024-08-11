@@ -1,68 +1,50 @@
-# 基础镜像阶段
-FROM ubuntu:20.04 AS base
+# 使用 node:18.15.0-alpine3.17 作为基础镜像
+FROM node:18.15.0-alpine3.17 AS base
 
-# 安装 Node.js 和基本工具
-RUN apt-get update && \
-    apt-get install -y \
+# 设置工作目录
+WORKDIR /app
+
+# 安装依赖
+RUN apk add --no-cache \
     curl \
     git \
-    build-essential \
+    build-base \
     ca-certificates \
-    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
-    && apt-get install -y nodejs \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    proxychains-ng
 
-# 依赖安装阶段
-FROM base AS deps
+# 复制项目文件到容器中
+COPY package.json pnpm-lock.yaml ./
 
-WORKDIR /app
+# 安装 pnpm
+RUN npm install -g pnpm
 
-COPY package.json yarn.lock ./
+# 安装项目依赖
+RUN pnpm install
 
-# 添加 Yarn 仓库并安装 Yarn
-RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add - \
-    && echo "deb https://dl.yarnpkg.com/debian/ stable main" | tee /etc/apt/sources.list.d/yarn.list \
-    && apt-get update \
-    && apt-get install -y yarn
-
-RUN yarn config set registry 'https://registry.npmmirror.com/'
-RUN yarn install
-
-# 构建阶段
-FROM base AS builder
-
-ENV OPENAI_API_KEY=""
-ENV CODE=""
-
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+# 构建应用
 COPY . .
-
-RUN yarn build
+RUN pnpm build
 
 # 运行阶段
-FROM base AS runner
+FROM node:18.15.0-alpine3.17 AS runner
 
 WORKDIR /app
 
-# 安装 proxychains-ng
-RUN apt-get update && \
-    apt-get install -y proxychains \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# 复制构建产物到运行镜像
+COPY --from=base /app/public ./public
+COPY --from=base /app/.next/standalone ./
+COPY --from=base /app/.next/static ./.next/static
+COPY --from=base /app/.next/server ./.next/server
 
+# 设置环境变量
 ENV PROXY_URL=""
 ENV OPENAI_API_KEY=""
 ENV CODE=""
 
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/.next/server ./.next/server
-
+# 暴露端口
 EXPOSE 3000
 
+# 运行应用
 CMD if [ -n "$PROXY_URL" ]; then \
         export HOSTNAME="127.0.0.1"; \
         protocol=$(echo $PROXY_URL | cut -d: -f1); \
