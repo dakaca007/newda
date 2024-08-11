@@ -1,19 +1,34 @@
-FROM node:18-alpine AS base
+# 基础镜像阶段
+FROM ubuntu:20.04 AS base
 
+# 安装 Node.js 和基本工具
+RUN apt-get update && \
+    apt-get install -y \
+    curl \
+    git \
+    build-essential \
+    ca-certificates \
+    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# 依赖安装阶段
 FROM base AS deps
-
-RUN apk add --no-cache libc6-compat
 
 WORKDIR /app
 
 COPY package.json yarn.lock ./
 
+# 安装 Yarn
+RUN curl -fsSL https://classic.yarnpkg.com/install.sh | bash \
+    && apt-get install -y yarn
+
 RUN yarn config set registry 'https://registry.npmmirror.com/'
 RUN yarn install
 
+# 构建阶段
 FROM base AS builder
-
-RUN apk update && apk add --no-cache git
 
 ENV OPENAI_API_KEY=""
 ENV CODE=""
@@ -24,10 +39,16 @@ COPY . .
 
 RUN yarn build
 
+# 运行阶段
 FROM base AS runner
+
 WORKDIR /app
 
-RUN apk add proxychains-ng
+# 安装 proxychains-ng
+RUN apt-get update && \
+    apt-get install -y proxychains \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV PROXY_URL=""
 ENV OPENAI_API_KEY=""
